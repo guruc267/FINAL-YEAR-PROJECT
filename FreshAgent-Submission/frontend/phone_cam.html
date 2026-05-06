@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>FreshAgent — Phone Camera</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #050b18;
+      --surface: #0c1528;
+      --surface2: #111d35;
+      --border: rgba(100,160,255,0.12);
+      --accent: #38bdf8;
+      --accent2: #818cf8;
+      --safe: #22d3a8;
+      --warn: #fbbf24;
+      --danger: #f87171;
+      --text: #e2eaf8;
+      --text-muted: #7a90b4;
+      --radius: 16px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ─────────────────────────────── */
+    .header {
+      background: rgba(5,11,24,0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky; top: 0; z-index: 50;
+    }
+    .header-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header-sub { font-size: 0.7rem; color: var(--text-muted); margin-top: 1px; }
+
+    .status-pill {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 5px 12px;
+      border-radius: 100px;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .status-dot.connected { background: var(--safe); box-shadow: 0 0 6px var(--safe); animation: blink 2s infinite; }
+    .status-dot.streaming { background: var(--danger); box-shadow: 0 0 6px var(--danger); animation: blink 1s infinite; }
+    .status-dot.error { background: var(--danger); }
+
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+    /* ── Main Content ───────────────────────── */
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    /* ── Camera Preview (for getUserMedia mode) */
+    .camera-container {
+      width: 100%;
+      max-width: 500px;
+      aspect-ratio: 4/3;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      position: relative;
+      display: none;
+    }
+    .camera-container.active { display: block; }
+    #cameraVideo {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    #cameraCanvas { display: none; }
+
+    /* ── Capture Preview (for tap-to-capture mode) */
+    .capture-preview {
+      width: 100%;
+      max-width: 500px;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      display: none;
+    }
+    .capture-preview.active { display: block; }
+    .capture-preview img {
+      width: 100%;
+      display: block;
+      border-radius: var(--radius);
+    }
+
+    /* ── Mode Info Card ─────────────────────── */
+    .mode-card {
+      width: 100%;
+      max-width: 500px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      text-align: center;
+    }
+    .mode-icon { font-size: 3rem; display: block; margin-bottom: 14px; }
+    .mode-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; }
+    .mode-desc { font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px; }
+
+    .mode-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 100px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+    .mode-badge.live {
+      background: rgba(34,211,168,0.15); color: #34d399;
+      border: 1px solid rgba(34,211,168,0.3);
+    }
+    .mode-badge.capture {
+      background: rgba(56,189,248,0.15); color: var(--accent);
+      border: 1px solid rgba(56,189,248,0.3);
+    }
+
+    .http-notice {
+      background: rgba(251,191,36,0.08);
+      border: 1px solid rgba(251,191,36,0.25);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 0.78rem;
+      color: #fbbf24;
+      line-height: 1.5;
+      margin-bottom: 14px;
+      display: none;
+    }
+
+    /* ── Result Banner ──────────────────────── */
+    .result-banner {
+      width: 100%;
+      max-width: 500px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      animation: slideUp 0.35s ease;
+      display: none;
+    }
+    .result-banner.visible { display: block; }
+
+    .result-safety {
+      font-size: 0.92rem;
+      font-weight: 700;
+      padding: 10px 14px;
+      border-radius: 10px;
+      text-align: center;
+      margin-bottom: 12px;
+      border: 1px solid;
+    }
+    .result-safety.safe-class {
+      background: rgba(34,211,168,0.15); color: #34d399;
+      border-color: rgba(34,211,168,0.3);
+    }
+    .result-safety.warn-class {
+      background: rgba(251,191,36,0.15); color: #fbbf24;
+      border-color: rgba(251,191,36,0.3);
+    }
+    .result-safety.danger-class {
+      background: rgba(248,113,113,0.15); color: #f87171;
+      border-color: rgba(248,113,113,0.3);
+      animation: dangerPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes dangerPulse {
+      0%,100% { box-shadow: 0 0 12px rgba(248,113,113,0.1); }
+      50% { box-shadow: 0 0 28px rgba(248,113,113,0.3); }
+    }
+
+    .result-row {
+      display: flex; justify-content: space-between;
+      padding: 6px 0;
+      font-size: 0.85rem;
+      border-bottom: 1px solid rgba(100,160,255,0.06);
+    }
+    .result-row:last-child { border-bottom: none; }
+    .result-row .label { color: var(--text-muted); }
+    .result-row .value { font-weight: 600; color: var(--text); }
+
+    /* ── Controls ───────────────────────────── */
+    .controls {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-bottom: 20px;
+    }
+
+    .ctrl-btn {
+      width: 100%;
+      padding: 14px 24px;
+      border-radius: 12px;
+      border: none;
+      font-family: inherit;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex; align-items: center; gap: 8px;
+      justify-content: center;
+    }
+    .ctrl-btn.primary {
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      color: white;
+      box-shadow: 0 4px 20px rgba(14,165,233,0.35);
+    }
+    .ctrl-btn.primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(14,165,233,0.5); }
+    .ctrl-btn.primary:active { transform: translateY(0); }
+
+    .ctrl-btn.capture-btn {
+      background: linear-gradient(135deg, #22d3a8, #38bdf8);
+      color: white;
+      box-shadow: 0 4px 20px rgba(34,211,168,0.35);
+      font-size: 1rem;
+      padding: 16px 24px;
+    }
+    .ctrl-btn.capture-btn:hover { transform: translateY(-2px); }
+
+    .ctrl-btn.stop {
+      background: rgba(248,113,113,0.15);
+      color: #f87171;
+      border: 1px solid rgba(248,113,113,0.3);
+    }
+
+    .ctrl-btn.secondary {
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-row {
+      display: flex; gap: 10px;
+    }
+    .btn-row .ctrl-btn { flex: 1; }
+
+    /* Hidden file input */
+    #captureInput { display: none; }
+
+    .stream-info {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ── Sending overlay ────────────────────── */
+    .sending-overlay {
+      position: fixed; inset: 0;
+      background: rgba(5,11,24,0.8);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .sending-overlay.active { display: flex; }
+    .spinner {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      border: 3px solid rgba(56,189,248,0.1);
+      border-top-color: var(--accent);
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .sending-text { font-size: 0.88rem; color: var(--text-muted); }
+
+    @keyframes slideUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="header-title">🍎 FreshAgent</div>
+      <div class="header-sub">Phone Camera Feed</div>
+    </div>
+    <div class="status-pill">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Initializing…</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Mode Info Card -->
+    <div class="mode-card" id="modeCard">
+      <div class="mode-icon">📱</div>
+      <div class="mode-badge live" id="modeBadge">● LIVE STREAM MODE</div>
+      <div class="mode-title" id="modeTitle">Phone Camera Ready</div>
+      <div class="mode-desc" id="modeDesc">Tap the button below to start streaming frames to FreshAgent for AI analysis.</div>
+      <div class="http-notice" id="httpNotice">
+        ⚠️ Camera streaming requires HTTPS. Using <strong>tap-to-capture</strong> mode instead — tap the capture button to take photos for analysis.
+      </div>
+    </div>
+
+    <!-- Camera video (live mode) -->
+    <div class="camera-container" id="cameraContainer">
+      <video id="cameraVideo" autoplay playsinline muted></video>
+      <canvas id="cameraCanvas"></canvas>
+    </div>
+
+    <!-- Capture preview (tap mode) -->
+    <div class="capture-preview" id="capturePreview">
+      <img id="captureImg" src="" alt="Captured photo" />
+    </div>
+
+    <!-- Hidden file input for tap-to-capture -->
+    <input type="file" id="captureInput" accept="image/*" capture="environment" />
+
+    <!-- Result Banner -->
+    <div class="result-banner" id="resultBanner">
+      <div class="result-safety" id="resultSafety"></div>
+      <div class="result-row">
+        <span class="label">Detected</span>
+        <span class="value" id="resItem">—</span>
+      </div>
+      <div class="result-row">
+        <span class="label">Condition</span>
+        <span class="value" id="resCondition">—</span>
+      </div>
+      <div class="result-row">
+        <span class="label">Confidence</span>
+        <span class="value" id="resConfidence">—</span>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls" id="controls">
+      <!-- Live mode buttons -->
+      <button class="ctrl-btn primary" id="startBtn" onclick="startStreaming()">▶ Start Streaming</button>
+      <div class="btn-row" id="liveControls" style="display:none;">
+        <button class="ctrl-btn stop" onclick="stopStreaming()">⏹ Stop</button>
+        <button class="ctrl-btn secondary" onclick="flipCamera()">🔄 Flip</button>
+      </div>
+
+      <!-- Capture mode button -->
+      <button class="ctrl-btn capture-btn" id="captureBtn" style="display:none;" onclick="triggerCapture()">📸 Tap to Capture & Analyze</button>
+    </div>
+
+    <div class="stream-info" id="streamInfo"></div>
+  </div>
+
+  <!-- Sending Overlay -->
+  <div class="sending-overlay" id="sendingOverlay">
+    <div class="spinner"></div>
+    <div class="sending-text">Analyzing with AI…</div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    let stream = null;
+    let streamInterval = null;
+    let facingMode = "environment";
+    let frameCount = 0;
+    let cameraSupported = false;
+
+    const video      = document.getElementById("cameraVideo");
+    const canvas     = document.getElementById("cameraCanvas");
+    const ctx        = canvas.getContext("2d");
+
+    // ── Check camera support ──────────────────────────────
+    // navigator.mediaDevices requires HTTPS or localhost
+    function checkCameraSupport() {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        cameraSupported = true;
+        setupLiveMode();
+      } else {
+        cameraSupported = false;
+        setupCaptureMode();
+      }
+    }
+
+    function setupLiveMode() {
+      document.getElementById("modeBadge").textContent = "● LIVE STREAM MODE";
+      document.getElementById("modeBadge").className = "mode-badge live";
+      document.getElementById("modeTitle").textContent = "Live Camera Ready";
+      document.getElementById("modeDesc").textContent = "Tap Start Streaming to continuously send frames for AI analysis.";
+      document.getElementById("httpNotice").style.display = "none";
+      document.getElementById("startBtn").style.display = "block";
+      document.getElementById("captureBtn").style.display = "none";
+
+      document.getElementById("statusDot").className = "status-dot connected";
+      document.getElementById("statusText").textContent = "Ready";
+    }
+
+    function setupCaptureMode() {
+      document.getElementById("modeBadge").textContent = "📸 TAP-TO-CAPTURE MODE";
+      document.getElementById("modeBadge").className = "mode-badge capture";
+      document.getElementById("modeTitle").textContent = "Tap-to-Capture Ready";
+      document.getElementById("modeDesc").textContent = "Tap the capture button to take a photo and analyze it with FreshAgent AI.";
+      document.getElementById("httpNotice").style.display = "block";
+      document.getElementById("startBtn").style.display = "none";
+      document.getElementById("captureBtn").style.display = "block";
+
+      document.getElementById("statusDot").className = "status-dot connected";
+      document.getElementById("statusText").textContent = "Capture Mode";
+
+      // Listen for file input changes
+      document.getElementById("captureInput").addEventListener("change", handleCapturedFile);
+    }
+
+    // ── Initialize on load ────────────────────────────────
+    checkCameraSupport();
+
+    // ═══════════════════════════════════════════════════════
+    // MODE 1: Live Streaming (requires HTTPS / getUserMedia)
+    // ═══════════════════════════════════════════════════════
+    async function initCamera() {
+      try {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
+
+        video.srcObject = stream;
+        return true;
+      } catch (err) {
+        console.error("Camera error:", err);
+        // Fall back to capture mode
+        setupCaptureMode();
+        return false;
+      }
+    }
+
+    async function startStreaming() {
+      const ok = await initCamera();
+      if (!ok) return;
+
+      document.getElementById("modeCard").style.display = "none";
+      document.getElementById("cameraContainer").classList.add("active");
+      document.getElementById("startBtn").style.display = "none";
+      document.getElementById("liveControls").style.display = "flex";
+      frameCount = 0;
+
+      document.getElementById("statusDot").className = "status-dot streaming";
+      document.getElementById("statusText").textContent = "LIVE";
+
+      sendFrame();
+      streamInterval = setInterval(sendFrame, 2500);
+    }
+
+    function stopStreaming() {
+      clearInterval(streamInterval);
+      streamInterval = null;
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+
+      document.getElementById("cameraContainer").classList.remove("active");
+      document.getElementById("modeCard").style.display = "block";
+      document.getElementById("startBtn").style.display = "block";
+      document.getElementById("liveControls").style.display = "none";
+      document.getElementById("resultBanner").classList.remove("visible");
+
+      document.getElementById("statusDot").className = "status-dot connected";
+      document.getElementById("statusText").textContent = "Ready";
+      document.getElementById("streamInfo").textContent = "";
+    }
+
+    async function flipCamera() {
+      facingMode = facingMode === "environment" ? "user" : "environment";
+      await initCamera();
+    }
+
+    async function sendFrame() {
+      if (!stream || !video.videoWidth) return;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+      frameCount++;
+      document.getElementById("streamInfo").textContent = `Frames sent: ${frameCount}`;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/phone-stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_b64: dataUrl }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          renderResult(data);
+          document.getElementById("statusText").textContent = "LIVE";
+        }
+      } catch (err) {
+        document.getElementById("statusText").textContent = "LIVE (reconnecting…)";
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // MODE 2: Tap-to-Capture (works over HTTP on all phones)
+    // ═══════════════════════════════════════════════════════
+    function triggerCapture() {
+      document.getElementById("captureInput").click();
+    }
+
+    function handleCapturedFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // Show preview
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target.result;
+
+        // Show the captured image
+        document.getElementById("captureImg").src = dataUrl;
+        document.getElementById("capturePreview").classList.add("active");
+        document.getElementById("modeCard").style.display = "none";
+
+        // Show sending overlay
+        document.getElementById("sendingOverlay").classList.add("active");
+        document.getElementById("statusDot").className = "status-dot streaming";
+        document.getElementById("statusText").textContent = "Analyzing…";
+
+        try {
+          const res = await fetch(`${API_BASE}/api/phone-stream`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_b64: dataUrl }),
+            signal: AbortSignal.timeout(15000),
+          });
+
+          document.getElementById("sendingOverlay").classList.remove("active");
+
+          if (res.ok) {
+            const data = await res.json();
+            frameCount++;
+            document.getElementById("streamInfo").textContent = `Photos analyzed: ${frameCount}`;
+            renderResult(data);
+            document.getElementById("statusDot").className = "status-dot connected";
+            document.getElementById("statusText").textContent = "Result Ready";
+          } else {
+            document.getElementById("statusText").textContent = "Server Error";
+          }
+        } catch (err) {
+          document.getElementById("sendingOverlay").classList.remove("active");
+          document.getElementById("statusText").textContent = "Connection Error";
+        }
+      };
+      reader.readAsDataURL(file);
+
+      // Reset input so same file can be captured again
+      e.target.value = "";
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // Shared: Render Result
+    // ═══════════════════════════════════════════════════════
+    function renderResult(data) {
+      const banner = document.getElementById("resultBanner");
+      const safety = document.getElementById("resultSafety");
+
+      const emojiMap = { "safe-class": "✅", "warn-class": "⚠️", "danger-class": "🚨" };
+      safety.textContent = (emojiMap[data.safety_class] || "ℹ️") + " " + data.safety;
+      safety.className = `result-safety ${data.safety_class}`;
+
+      document.getElementById("resItem").textContent = data.veggie || data.fruit || "—";
+      document.getElementById("resCondition").textContent = data.condition_display || data.condition || "—";
+      document.getElementById("resConfidence").textContent = `${data.cond_confidence}%`;
+
+      banner.classList.add("visible");
+    }
+  </script>
+</body>
+</html>

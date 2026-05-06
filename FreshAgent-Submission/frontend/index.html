@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FreshAgent – Fruits & Vegetables Adulteration Detection</title>
+  <meta name="description"
+    content="AI-powered system to detect food adulteration (Fresh, Rotten, Adulterated) for fruits and vegetables using deep learning." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <!-- ═══════════════════════════════ HEADER ═══════════════════════════════════ -->
+  <header class="glass-header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🍎</span>
+        <div>
+          <h1>FreshAgent</h1>
+          <p class="logo-sub">Fruits &amp; Vegetables Adulteration Detection System</p>
+        </div>
+      </div>
+      <div class="header-status">
+        <span class="status-dot" id="apiStatus"></span>
+        <span id="apiStatusText">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════ HERO ════════════════════════════════════ -->
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-badge">Powered by EfficientNetV2-B0 · Deep Learning</div>
+      <h2 class="hero-title">Detect Food Adulteration<br /><span>Instantly.</span></h2>
+      <p class="hero-desc">Upload a fruit or vegetable image to detect whether it is
+        <strong>Fresh</strong>, <strong>Rotten</strong>, or <strong>Adulterated</strong> within seconds.
+      </p>
+      <div class="hero-chips">
+        <span class="chip chip-green">🍎 Apple</span>
+        <span class="chip chip-yellow">🍌 Banana</span>
+        <span class="chip chip-orange">🥭 Mango</span>
+        <span class="chip chip-orange2">🍊 Orange</span>
+        <span class="chip chip-purple">🍇 Grapes</span>
+        <span class="chip chip-veggie">🫚 Ginger</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════ MAIN ════════════════════════════════════ -->
+  <main class="container">
+
+    <!-- MODE TOGGLE: Fruit vs Vegetable -->
+    <div class="mode-toggle" role="group" aria-label="Detection mode">
+      <button class="mode-btn active" id="modeBtn-fruit" onclick="setMode('fruit')">
+        🍎 Fruit Detection
+      </button>
+      <button class="mode-btn" id="modeBtn-veggie" onclick="setMode('veggie')">
+        🌿 Vegetable Detection
+      </button>
+    </div>
+
+    <!-- TAB NAV -->
+    <div class="tabs" role="tablist">
+      <button class="tab active" id="tab-upload" role="tab" aria-selected="true" onclick="switchTab('upload')">
+        📤 Upload Image
+      </button>
+      <button class="tab" id="tab-esp32" role="tab" aria-selected="false" onclick="switchTab('esp32')">
+        📷 ESP32-CAM Live
+      </button>
+      <button class="tab" id="tab-phone" role="tab" aria-selected="false" onclick="switchTab('phone')">
+        📱 Phone Camera
+      </button>
+    </div>
+
+    <!-- ──────────── UPLOAD PANEL ──────────── -->
+    <section class="panel" id="panel-upload" role="tabpanel">
+      <div class="two-col">
+
+        <!-- Upload Zone -->
+        <div class="card">
+          <h3 class="card-title" id="uploadCardTitle">📂 Select Fruit Image</h3>
+
+          <!-- Veggie Model Status Warning -->
+          <div class="veggie-notice hidden" id="veggieNotice">
+            ⚠️ VeggieAgent model not trained yet.<br />
+            Run <code>train_veggie.bat "path\to\ginger_dataset"</code> first.
+          </div>
+
+          <div class="drop-zone" id="dropZone" ondragover="dragOver(event)" ondragleave="dragLeave(event)"
+            ondrop="dropFile(event)" onclick="document.getElementById('fileInput').click()">
+            <div class="drop-icon">🖼️</div>
+            <p class="drop-text">Drag &amp; drop an image here<br /><span>or click to browse</span></p>
+            <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="fileSelected(event)" />
+          </div>
+          <div class="preview-wrap hidden" id="previewWrap">
+            <img id="previewImg" src="" alt="Preview" class="preview-img" />
+            <p id="fileName" style="font-size:0.78rem;color:var(--text-muted);text-align:center;margin-top:4px;"></p>
+            <button class="btn btn-primary" id="analyzeBtn" onclick="analyzeManual()">
+              🔍 Analyze Image
+            </button>
+            <button class="btn btn-ghost" onclick="clearUpload()">✖ Clear</button>
+          </div>
+        </div>
+
+        <!-- Result Card -->
+        <div class="card" id="resultCard" style="display:none">
+          <h3 class="card-title">🧠 Analysis Result</h3>
+          <div class="result-hero" id="safetyBanner"></div>
+          <div class="result-grid">
+            <div class="result-item">
+              <span class="result-label" id="resItemLabel">Fruit Type</span>
+              <span class="result-value" id="resFruit">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Condition</span>
+              <span class="result-value" id="resCondition">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label" id="resConfLabel">Item Confidence</span>
+              <span class="result-value" id="resFruitConf">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Condition Confidence</span>
+              <span class="result-value" id="resCondConf">—</span>
+            </div>
+          </div>
+
+          <!-- Confidence Bars -->
+          <h4 class="section-mini-title">Condition Probability Breakdown</h4>
+          <div class="bar-group" id="condBars"></div>
+
+          <!-- Grad-CAM -->
+          <div id="camWrap" class="cam-wrap hidden">
+            <h4 class="section-mini-title">🔥 Grad-CAM – Explainability Heatmap</h4>
+            <p class="cam-hint">Red regions indicate the areas that influenced the prediction most.</p>
+            <img id="camImg" src="" alt="Grad-CAM Heatmap" class="cam-img" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Loader -->
+      <div class="loader-wrap hidden" id="uploadLoader">
+        <div class="spinner-ring"></div>
+        <p>Analyzing image with AI…</p>
+        <p style="font-size:0.78rem;color:var(--text-muted);" id="loaderModel">FreshAgent · EfficientNetV2-B0 · ONNX
+          Runtime</p>
+      </div>
+    </section>
+
+    <!-- ──────────── ESP32 PANEL ──────────── -->
+    <section class="panel hidden" id="panel-esp32" role="tabpanel">
+      <div class="two-col">
+
+        <!-- Live View -->
+        <div class="card">
+          <h3 class="card-title">📡 ESP32-CAM Live Feed</h3>
+          <div class="esp32-frame" id="esp32Frame">
+            <div class="esp32-placeholder">
+              <span>📷</span>
+              <p>Waiting for ESP32-CAM…</p>
+              <small>Configure your ESP32-CAM to POST images to:<br />
+                <code id="esp32Endpoint">http://&lt;your-server-ip&gt;:9090/api/esp32-stream</code></small>
+            </div>
+            <img id="esp32PreviewImg" src="" alt="ESP32 Live" class="preview-img hidden" />
+          </div>
+          <div class="esp32-controls">
+            <button class="btn btn-primary" id="startPollBtn" onclick="startPolling()">▶ Start Live Monitoring</button>
+            <button class="btn btn-ghost" id="stopPollBtn" onclick="stopPolling()" style="display:none">⏹ Stop</button>
+            <span class="poll-status" id="pollStatus"></span>
+          </div>
+        </div>
+
+        <!-- ESP32 Results -->
+        <div class="card" id="esp32ResultCard" style="display:none">
+          <h3 class="card-title">🧠 Live Analysis</h3>
+          <div class="result-hero" id="esp32SafetyBanner"></div>
+          <div class="result-grid">
+            <div class="result-item">
+              <span class="result-label">Fruit Type</span>
+              <span class="result-value" id="e32Fruit">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Condition</span>
+              <span class="result-value" id="e32Condition">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Confidence</span>
+              <span class="result-value" id="e32Conf">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Last Updated</span>
+              <span class="result-value" id="e32Time">—</span>
+            </div>
+          </div>
+          <div class="bar-group" id="e32CondBars"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────── PHONE CAMERA PANEL ──────────── -->
+    <section class="panel hidden" id="panel-phone" role="tabpanel">
+      <div class="two-col">
+
+        <!-- QR Code & Connection -->
+        <div class="card">
+          <h3 class="card-title">📱 Connect Phone Camera</h3>
+          <p class="phone-intro">Scan this QR code with any phone to open the camera feed page. The phone streams frames directly to FreshAgent for AI analysis.</p>
+
+          <div class="qr-container" id="qrContainer">
+            <div class="qr-loading">Loading QR…</div>
+          </div>
+
+          <div class="phone-url-row">
+            <code class="phone-url" id="phoneCamUrl">Detecting server IP…</code>
+            <button class="btn-copy" id="copyUrlBtn" onclick="copyPhoneUrl()" title="Copy URL">📋</button>
+          </div>
+
+          <p class="phone-hint">💡 Make sure your phone is on the <strong>same WiFi network</strong> as this computer.</p>
+
+          <!-- Live View from Phone -->
+          <div class="phone-live-frame" id="phoneLiveFrame">
+            <div class="phone-placeholder" id="phonePlaceholder">
+              <span>📱</span>
+              <p>Waiting for phone camera…</p>
+              <small>Scan the QR code above to start</small>
+            </div>
+            <img id="phonePreviewImg" src="" alt="Phone Camera Live" class="preview-img hidden" />
+          </div>
+
+          <div class="esp32-controls">
+            <button class="btn btn-primary" id="startPhonePollBtn" onclick="startPhonePolling()">▶ Start Live Monitoring</button>
+            <button class="btn btn-ghost" id="stopPhonePollBtn" onclick="stopPhonePolling()" style="display:none">⏹ Stop</button>
+            <span class="poll-status" id="phonePollStatus"></span>
+          </div>
+        </div>
+
+        <!-- Phone Results -->
+        <div class="card" id="phoneResultCard" style="display:none">
+          <h3 class="card-title">🧠 Live Analysis</h3>
+          <div class="result-hero" id="phoneSafetyBanner"></div>
+          <div class="result-grid">
+            <div class="result-item">
+              <span class="result-label">Detected Item</span>
+              <span class="result-value" id="phoneFruit">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Condition</span>
+              <span class="result-value" id="phoneCondition">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Confidence</span>
+              <span class="result-value" id="phoneConf">—</span>
+            </div>
+            <div class="result-item">
+              <span class="result-label">Last Updated</span>
+              <span class="result-value" id="phoneTime">—</span>
+            </div>
+          </div>
+          <div class="bar-group" id="phoneCondBars"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────── INFO CARDS ──────────── -->
+    <section class="info-section">
+      <h2 class="section-title">How Does It Work?</h2>
+      <div class="info-grid">
+        <div class="info-card">
+          <span class="info-icon">📸</span>
+          <h4>Image Capture</h4>
+          <p>Upload an image from your device, or let the ESP32-CAM automatically capture and send images to the server.
+          </p>
+        </div>
+        <div class="info-card">
+          <span class="info-icon">🤖</span>
+          <h4>Deep Learning Analysis</h4>
+          <p>An EfficientNetV2-B0 multi-task model analyzes visual patterns — texture, color, and surface artifacts — to
+            identify formalin treatment and rot.</p>
+        </div>
+        <div class="info-card">
+          <span class="info-icon">🔥</span>
+          <h4>Explainability (Grad-CAM)</h4>
+          <p>A heatmap highlights exactly which regions of the fruit contributed to the prediction, ensuring
+            trustworthy, interpretable AI decisions.</p>
+        </div>
+        <div class="info-card">
+          <span class="info-icon">⚡</span>
+          <h4>Instant Results</h4>
+          <p>Server-side ONNX Runtime inference ensures results in under 1 second. The ESP32-CAM only sends images; all
+            AI runs on the server.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────── DISCLAIMER ──────────── -->
+    <div class="disclaimer">
+      <strong>⚠️ Important:</strong> This system detects <em>visual proxies</em> of adulteration (surface texture, color
+      changes). It does not perform chemical analysis. For regulatory or safety-critical decisions, laboratory testing
+      is required. <strong>Fruits:</strong> Formalin detection. <strong>Vegetables:</strong> Acid-wash detection. Does
+      not detect wax, calcium carbide, or artificial colors.
+    </div>
+  </main>
+
+  <!-- ═══════════════════════════════ FOOTER ═══════════════════════════════════ -->
+  <footer>
+    <p>FreshAgent v1.0 · AI-Based Fruits &amp; Vegetables Adulteration Detection System</p>
+    <p>Built with EfficientNetV2-B0 · FastAPI · ONNX Runtime · Grad-CAM</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
